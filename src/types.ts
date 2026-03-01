@@ -1,5 +1,5 @@
 export interface User {
-  id: number;
+  id: string;
   phone: string;
   name?: string;
   email?: string;
@@ -20,24 +20,24 @@ export interface CartItem extends Medicine {
 }
 
 export interface Prescription {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   image_url: string;
   extracted_data: string;
   created_at: string;
 }
 
 export interface Reminder {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   medicine_name: string;
   time: string;
   frequency: string;
 }
 
 export interface Order {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   items: string;
   total_amount: number;
   status: string;

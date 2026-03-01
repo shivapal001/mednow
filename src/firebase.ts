@@ -1,5 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics, isSupported } from "firebase/analytics";
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyA-q78kXt3QmInif0EuSZ1jbZmK8HWHTok",
@@ -14,7 +16,12 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Analytics conditionally (it only works in browser environments)
+// Initialize Services
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const googleProvider = new GoogleAuthProvider();
+
+// Initialize Analytics conditionally
 export const analyticsPromise = isSupported().then((supported) => {
   if (supported) {
     return getAnalytics(app);
