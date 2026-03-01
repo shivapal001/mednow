@@ -40,7 +40,7 @@ import {
   signOut,
   signInWithPopup
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, deleteDoc, orderBy } from 'firebase/firestore';
 import { MEDICINES, DOCTORS } from './constants';
 import { User as UserType, CartItem, Medicine, Reminder, Prescription } from './types';
 import { geminiService } from './services/geminiService';
@@ -472,11 +472,12 @@ const UploadPage = ({ user }: { user: UserType | null }) => {
     try {
       const data = await geminiService.scanPrescription(image);
       setResult(data);
-      // Save to DB
-      await fetch('/api/prescriptions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, imageUrl: image, extractedData: data })
+      // Save to Firestore
+      await addDoc(collection(db, 'prescriptions'), {
+        user_id: user.id,
+        image_url: image,
+        extracted_data: JSON.stringify(data),
+        created_at: new Date().toISOString()
       });
     } catch (err) {
       alert("Scan failed");
@@ -592,10 +593,12 @@ const CartPage = ({ cart, updateQty, clearCart, user }: { cart: CartItem[], upda
       alert("Please login first");
       return;
     }
-    await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: user.id, items: cart, totalAmount: total })
+    await addDoc(collection(db, 'orders'), {
+      user_id: user.id,
+      items: JSON.stringify(cart),
+      total_amount: total,
+      status: 'pending',
+      created_at: new Date().toISOString()
     });
     clearCart();
     alert("Order placed successfully!");
@@ -694,25 +697,38 @@ const RemindersPage = ({ user }: { user: UserType | null }) => {
 
   useEffect(() => {
     if (user) {
-      fetch(`/api/reminders/${user.id}`).then(res => res.json()).then(setReminders);
+      const fetchReminders = async () => {
+        const q = query(collection(db, 'reminders'), where('user_id', '==', user.id));
+        const querySnapshot = await getDocs(q);
+        const rems: Reminder[] = [];
+        querySnapshot.forEach((doc) => {
+          rems.push({ id: doc.id, ...doc.data() } as Reminder);
+        });
+        setReminders(rems);
+      };
+      fetchReminders();
     }
   }, [user]);
 
   const addReminder = async () => {
     if (!user || !newRem.name || !newRem.time) return;
-    const res = await fetch('/api/reminders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: user.id, medicineName: newRem.name, time: newRem.time, frequency: newRem.freq })
-    });
-    const data = await res.json();
-    setReminders([...reminders, { id: data.id, user_id: user.id, medicine_name: newRem.name, time: newRem.time, frequency: newRem.freq }]);
+    
+    const remData = {
+      user_id: user.id,
+      medicine_name: newRem.name,
+      time: newRem.time,
+      frequency: newRem.freq,
+      created_at: new Date().toISOString()
+    };
+
+    const docRef = await addDoc(collection(db, 'reminders'), remData);
+    setReminders([...reminders, { id: docRef.id, ...remData }]);
     setShowAdd(false);
     setNewRem({ name: '', time: '', freq: 'Daily' });
   };
 
   const deleteReminder = async (id: string) => {
-    await fetch(`/api/reminders/${id}`, { method: 'DELETE' });
+    await deleteDoc(doc(db, 'reminders', id));
     setReminders(reminders.filter(r => r.id !== id));
   };
 
@@ -837,7 +853,20 @@ const WalletPage = ({ user }: { user: UserType | null }) => {
 
   useEffect(() => {
     if (user) {
-      fetch(`/api/prescriptions/${user.id}`).then(res => res.json()).then(setPrescriptions);
+      const fetchPrescriptions = async () => {
+        const q = query(
+          collection(db, 'prescriptions'), 
+          where('user_id', '==', user.id),
+          orderBy('created_at', 'desc')
+        );
+        const querySnapshot = await getDocs(q);
+        const docs: Prescription[] = [];
+        querySnapshot.forEach((doc) => {
+          docs.push({ id: doc.id, ...doc.data() } as Prescription);
+        });
+        setPrescriptions(docs);
+      };
+      fetchPrescriptions();
     }
   }, [user]);
 
