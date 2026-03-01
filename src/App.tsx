@@ -949,8 +949,15 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
     try {
       if (isLogin) {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-        const userData = userDoc.data();
+        let userData: any = null;
+        try {
+          const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+          userData = userDoc.data();
+        } catch (dbErr) {
+          console.error("Firestore fetch failed:", dbErr);
+          // Continue anyway, we have the auth user
+        }
+        
         onLogin({ 
           id: userCredential.user.uid, 
           name: userCredential.user.displayName || 'User', 
@@ -966,13 +973,18 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(userCredential.user, { displayName: name });
         
-        // Save extra info to Firestore
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          name,
-          email,
-          phone,
-          createdAt: new Date().toISOString()
-        });
+        try {
+          // Save extra info to Firestore
+          await setDoc(doc(db, 'users', userCredential.user.uid), {
+            name,
+            email,
+            phone,
+            createdAt: new Date().toISOString()
+          });
+        } catch (dbErr) {
+          console.error("Firestore save failed:", dbErr);
+          // We still have the auth user, but profile data might be missing
+        }
         
         onLogin({ 
           id: userCredential.user.uid, 
@@ -982,8 +994,16 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
         });
       }
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Authentication failed');
+      console.error("Auth Error:", err);
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('Email/Password login is not enabled in Firebase Console.');
+      } else if (err.code === 'auth/invalid-credential') {
+        setError('Invalid email or password.');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered.');
+      } else {
+        setError(err.message || 'Authentication failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -1137,7 +1157,8 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
 
           <button 
             onClick={handleSubmit}
-            className="btn-primary w-full py-5 text-lg shadow-2xl shadow-brand-600/30"
+            disabled={loading}
+            className="btn-primary w-full py-5 text-lg shadow-2xl shadow-brand-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
               <div className="flex items-center justify-center gap-3">
