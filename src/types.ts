@@ -5,6 +5,10 @@ export interface User {
   email?: string;
   role?: 'user' | 'admin';
   createdAt?: string;
+  updatedAt?: string;
+  bloodGroup?: string;
+  weight?: string;
+  height?: string;
 }
 
 export interface Doctor {
@@ -59,6 +63,12 @@ export interface Order {
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   paymentMethod: 'cod' | 'online';
   address: string;
+  apartment?: string;
+  landmark?: string;
+  pincode?: string;
+  city?: string;
+  state?: string;
+  alternatePhone?: string;
   location?: {
     latitude: number;
     longitude: number;

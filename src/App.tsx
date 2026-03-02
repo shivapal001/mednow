@@ -34,7 +34,13 @@ import {
   CreditCard,
   Truck,
   Phone,
-  LogOut
+  LogOut,
+  Shield,
+  BarChart3,
+  Activity,
+  Calendar,
+  Briefcase,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -131,11 +137,12 @@ const Navbar = ({ cartCount, user }: { cartCount: number, user: UserType | null 
 };
 
 const AdminPanel = ({ user }: { user: UserType | null }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'medicines' | 'doctors' | 'orders' | 'users'>('dashboard');
-  const [medicines, setMedicines] = useState<Medicine[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'medicines' | 'doctors' | 'orders' | 'users' | 'consultations'>('dashboard');
+  const [medicines, setMedicines] = useState<Medicine[]>(INITIAL_MEDICINES);
+  const [doctors, setDoctors] = useState<Doctor[]>(INITIAL_DOCTORS.map(d => ({...d, id: d.id.toString()} as Doctor)));
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
+  const [consultations, setConsultations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Form states
@@ -147,15 +154,30 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
 
     const unsubMeds = onSnapshot(collection(db, 'medicines'), (snapshot) => {
       setMedicines(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Medicine)));
+    }, (error) => {
+      console.warn("Admin Medicines listener error (using fallback data):", error.message);
+      setMedicines(INITIAL_MEDICINES);
     });
     const unsubDocs = onSnapshot(collection(db, 'doctors'), (snapshot) => {
       setDoctors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Doctor)));
+    }, (error) => {
+      console.warn("Admin Doctors listener error (using fallback data):", error.message);
+      setDoctors(INITIAL_DOCTORS.map(d => ({...d, id: d.id.toString()} as Doctor)));
     });
     const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('created_at', 'desc')), (snapshot) => {
       setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
+    }, (error) => {
+      console.error("Admin Orders listener error:", error);
     });
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
       setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserType)));
+    }, (error) => {
+      console.error("Admin Users listener error:", error);
+    });
+    const unsubConsults = onSnapshot(query(collection(db, 'consultations'), orderBy('created_at', 'desc')), (snapshot) => {
+      setConsultations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error("Admin Consultations listener error:", error);
     });
 
     return () => {
@@ -163,6 +185,7 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
       unsubDocs();
       unsubOrders();
       unsubUsers();
+      unsubConsults();
     };
   }, [user]);
 
@@ -225,6 +248,7 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
             { id: 'medicines', icon: Package, label: 'Medicines' },
             { id: 'doctors', icon: Stethoscope, label: 'Doctors' },
             { id: 'orders', icon: ShoppingCart, label: 'Orders' },
+            { id: 'consultations', icon: Phone, label: 'Consultations' },
             { id: 'users', icon: Users, label: 'Users' },
           ].map((item) => (
             <button
@@ -252,7 +276,7 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
                 { label: 'Total Orders', value: orders.length, icon: ShoppingCart, color: 'bg-blue-500' },
                 { label: 'Total Users', value: users.length, icon: Users, color: 'bg-emerald-500' },
                 { label: 'Medicines', value: medicines.length, icon: Package, color: 'bg-orange-500' },
-                { label: 'Doctors', value: doctors.length, icon: Stethoscope, color: 'bg-brand-600' },
+                { label: 'Consultations', value: consultations.length, icon: Phone, color: 'bg-brand-600' },
               ].map((stat, i) => (
                 <div key={i} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
                   <div className={cn(stat.color, "w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg")}>
@@ -451,40 +475,168 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
                   <tr>
                     <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Order ID</th>
                     <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Customer</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Items</th>
                     <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Total</th>
                     <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Status</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Payment</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {orders.map(order => (
-                    <tr key={order.id}>
-                      <td className="px-6 py-4 font-mono text-xs font-bold text-slate-400">#{order.id.slice(-6)}</td>
+                  {orders.map(order => {
+                    const items = JSON.parse(order.items || '[]');
+                    return (
+                      <tr key={order.id}>
+                        <td className="px-6 py-4 font-mono text-xs font-bold text-slate-400">#{order.id.slice(-6)}</td>
+                        <td className="px-6 py-4">
+                          <p className="font-bold text-slate-800">{order.user_name || 'Anonymous'}</p>
+                          <p className="text-xs text-slate-400">{order.user_phone}</p>
+                          <div className="mt-2 text-[10px] text-slate-500 space-y-0.5 max-w-[200px]">
+                            <p className="font-medium text-slate-700">{order.address}</p>
+                            {order.apartment && <p>Apt: {order.apartment}</p>}
+                            {order.landmark && <p className="italic">Near: {order.landmark}</p>}
+                            <p>{order.city}, {order.state} - {order.pincode}</p>
+                            {order.alternatePhone && <p className="text-brand-600">Alt: {order.alternatePhone}</p>}
+                          </div>
+                          {order.location && (
+                            <a 
+                              href={`https://www.google.com/maps?q=${order.location.latitude},${order.location.longitude}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[10px] text-brand-600 font-bold hover:underline flex items-center gap-1 mt-2"
+                            >
+                              <MapPin className="w-3 h-3" />
+                              View Location
+                            </a>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-xs text-slate-500">
+                            {items.map((it: any) => `${it.name} (x${it.quantity})`).join(', ')}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 font-bold text-slate-800">₹{order.total_amount}</td>
+                        <td className="px-6 py-4">
+                          <select 
+                            value={order.status}
+                            onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+                            className={cn(
+                              "text-xs font-bold px-3 py-1.5 rounded-full border-none outline-none",
+                              order.status === 'pending' ? "bg-orange-50 text-orange-600" :
+                              order.status === 'delivered' ? "bg-emerald-50 text-emerald-600" :
+                              "bg-blue-50 text-blue-600"
+                            )}
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="processing">Processing</option>
+                            <option value="shipped">Shipped</option>
+                            <option value="delivered">Delivered</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                        </td>
+                        <td className="px-6 py-4">
+                          <button onClick={() => deleteDoc(doc(db, 'orders', order.id))} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'consultations' && (
+          <div className="space-y-8">
+            <h1 className="text-3xl font-display font-bold">Consultation Requests</h1>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Customer</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Doctor</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Date</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Status</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {consultations.map(c => (
+                    <tr key={c.id}>
                       <td className="px-6 py-4">
-                        <p className="font-bold text-slate-800">{order.user_name || 'Anonymous'}</p>
-                        <p className="text-xs text-slate-400">{order.user_phone}</p>
+                        <p className="font-bold text-slate-800">{c.user_name || 'Anonymous'}</p>
+                        <p className="text-xs text-slate-400">{c.user_phone}</p>
                       </td>
-                      <td className="px-6 py-4 font-bold text-slate-800">₹{order.total_amount}</td>
+                      <td className="px-6 py-4">
+                        <p className="font-bold text-slate-800">{c.doctor_name}</p>
+                        <p className="text-xs text-brand-600 font-bold">{c.doctor_specialty}</p>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">
+                        {new Date(c.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 bg-blue-50 text-blue-600 rounded-full">
+                          {c.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <button onClick={() => deleteDoc(doc(db, 'consultations', c.id))} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'users' && (
+          <div className="space-y-8">
+            <h1 className="text-3xl font-display font-bold">Manage Users</h1>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">User</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Email</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Phone</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Role</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Joined</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {users.map(u => (
+                    <tr key={u.id}>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
+                            <User className="w-4 h-4" />
+                          </div>
+                          <p className="font-bold text-slate-800">{u.name}</p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{u.email}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{u.phone}</td>
                       <td className="px-6 py-4">
                         <select 
-                          value={order.status}
-                          onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+                          value={u.role || 'user'}
+                          onChange={async (e) => {
+                            await updateDoc(doc(db, 'users', u.id), { role: e.target.value });
+                          }}
                           className={cn(
                             "text-xs font-bold px-3 py-1.5 rounded-full border-none outline-none",
-                            order.status === 'pending' ? "bg-orange-50 text-orange-600" :
-                            order.status === 'delivered' ? "bg-emerald-50 text-emerald-600" :
-                            "bg-blue-50 text-blue-600"
+                            u.role === 'admin' ? "bg-purple-50 text-purple-600" : "bg-slate-50 text-slate-600"
                           )}
                         >
-                          <option value="pending">Pending</option>
-                          <option value="processing">Processing</option>
-                          <option value="shipped">Shipped</option>
-                          <option value="delivered">Delivered</option>
-                          <option value="cancelled">Cancelled</option>
+                          <option value="user">User</option>
+                          <option value="admin">Admin</option>
                         </select>
                       </td>
-                      <td className="px-6 py-4">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{order.paymentMethod}</span>
+                      <td className="px-6 py-4 text-xs text-slate-400">
+                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
                       </td>
                     </tr>
                   ))}
@@ -640,7 +792,26 @@ const HomePage = ({ medicines }: { medicines: Medicine[] }) => {
   );
 };
 
-const DoctorsPage = ({ doctors }: { doctors: Doctor[] }) => {
+const DoctorsPage = ({ doctors, user }: { doctors: Doctor[], user: UserType | null }) => {
+  const handleConsultationClick = async (docItem: Doctor) => {
+    if (user) {
+      try {
+        await addDoc(collection(db, 'consultations'), {
+          user_id: user.id,
+          user_name: user.name,
+          user_phone: user.phone,
+          doctor_id: docItem.id,
+          doctor_name: docItem.name,
+          doctor_specialty: docItem.specialty,
+          created_at: new Date().toISOString(),
+          status: 'requested'
+        });
+      } catch (err) {
+        console.error("Failed to log consultation:", err);
+      }
+    }
+  };
+
   return (
     <div className="p-6 max-w-screen-xl mx-auto space-y-10 pb-24 pt-10">
       <header className="space-y-2">
@@ -648,10 +819,10 @@ const DoctorsPage = ({ doctors }: { doctors: Doctor[] }) => {
         <p className="text-slate-500 font-medium">Connect with top specialists instantly via WhatsApp.</p>
       </header>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {doctors.map((doc) => (
+        {doctors.map((docItem) => (
           <motion.div 
             whileHover={{ y: -10 }}
-            key={doc.id} 
+            key={docItem.id} 
             className="glass-panel p-8 space-y-6 border-white/60 group hover:shadow-2xl transition-all duration-700 relative overflow-hidden"
           >
             <div className="absolute inset-0 shimmer opacity-0 group-hover:opacity-10 transition-opacity pointer-events-none" />
@@ -659,8 +830,8 @@ const DoctorsPage = ({ doctors }: { doctors: Doctor[] }) => {
             <div className="flex items-start justify-between">
               <div className="relative">
                 <img 
-                  src={doc.image} 
-                  alt={doc.name} 
+                  src={docItem.image} 
+                  alt={docItem.name} 
                   className="w-24 h-24 rounded-[2.5rem] object-cover border-4 border-white shadow-xl group-hover:scale-105 transition-transform duration-700" 
                   referrerPolicy="no-referrer" 
                 />
@@ -669,7 +840,7 @@ const DoctorsPage = ({ doctors }: { doctors: Doctor[] }) => {
                 </div>
               </div>
               <div className="flex flex-col items-end gap-2">
-                {doc.verified && (
+                {docItem.verified && (
                   <div className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-3 py-1.5 rounded-xl uppercase tracking-widest border border-emerald-100/50 flex items-center gap-1.5">
                     <CheckCircle className="w-3 h-3" />
                     Verified
@@ -677,20 +848,20 @@ const DoctorsPage = ({ doctors }: { doctors: Doctor[] }) => {
                 )}
                 <div className="flex items-center gap-1.5 bg-yellow-50 px-3 py-1.5 rounded-xl border border-yellow-100/50">
                   <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
-                  <span className="text-xs font-bold text-yellow-700">{doc.rating}</span>
+                  <span className="text-xs font-bold text-yellow-700">{docItem.rating}</span>
                 </div>
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <h4 className="font-bold text-2xl text-slate-900 group-hover:text-brand-600 transition-colors">{doc.name}</h4>
+                <h4 className="font-bold text-2xl text-slate-900 group-hover:text-brand-600 transition-colors">{docItem.name}</h4>
               </div>
-              <p className="text-brand-600 text-xs font-bold uppercase tracking-[0.2em]">{doc.specialty}</p>
+              <p className="text-brand-600 text-xs font-bold uppercase tracking-[0.2em]">{docItem.specialty}</p>
               <div className="flex items-center gap-3 pt-2">
                 <div className="flex flex-col">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Experience</span>
-                  <span className="text-sm font-bold text-slate-700">{doc.experience}</span>
+                  <span className="text-sm font-bold text-slate-700">{docItem.experience}</span>
                 </div>
                 <div className="w-px h-8 bg-slate-100" />
                 <div className="flex flex-col">
@@ -703,12 +874,13 @@ const DoctorsPage = ({ doctors }: { doctors: Doctor[] }) => {
             <div className="flex justify-between items-center pt-6 border-t border-slate-50">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Consultation Fee</span>
-                <span className="font-bold text-2xl text-slate-900">₹{doc.fee}</span>
+                <span className="font-bold text-2xl text-slate-900">₹{docItem.fee}</span>
               </div>
               <a 
-                href={`https://wa.me/${doc.whatsapp || '910000000000'}?text=Hello Dr. ${doc.name}, I would like to book a consultation.`}
+                href={`https://wa.me/${docItem.whatsapp || '910000000000'}?text=Hello Dr. ${docItem.name}, I would like to book a consultation.`}
                 target="_blank"
                 rel="noreferrer"
+                onClick={() => handleConsultationClick(docItem)}
                 className="bg-emerald-500 text-white px-8 py-4 rounded-2xl font-bold text-sm shadow-xl shadow-emerald-500/20 hover:bg-emerald-600 transition-all active:scale-95 flex items-center gap-2"
               >
                 <Phone className="w-4 h-4" />
@@ -804,9 +976,10 @@ const ShopPage = ({ addToCart, medicines }: { addToCart: (m: Medicine) => void, 
               </div>
               <button 
                 onClick={() => addToCart(med)}
-                className="bg-brand-600 text-white p-4 rounded-2xl font-bold text-sm hover:bg-brand-700 transition-all shadow-lg shadow-brand-600/20 active:scale-95"
+                className="bg-brand-600 text-white px-6 py-3 rounded-2xl font-bold text-xs hover:bg-brand-700 transition-all shadow-lg shadow-brand-600/20 active:scale-95 flex items-center gap-2"
               >
-                <PlusCircle className="w-6 h-6" />
+                <PlusCircle className="w-5 h-5" />
+                Add to Cart
               </button>
             </div>
           </motion.div>
@@ -1046,6 +1219,12 @@ const CartPage = ({ cart, updateQty, clearCart, user }: { cart: CartItem[], upda
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [address, setAddress] = useState('');
+  const [apartment, setApartment] = useState('');
+  const [landmark, setLandmark] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [alternatePhone, setAlternatePhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'online'>('cod');
   const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
 
@@ -1067,8 +1246,8 @@ const CartPage = ({ cart, updateQty, clearCart, user }: { cart: CartItem[], upda
       alert("Please login first");
       return;
     }
-    if (!address) {
-      alert("Please enter delivery address");
+    if (!address || !pincode || !city) {
+      alert("Please fill in all required address fields (Address, Pincode, City)");
       return;
     }
     
@@ -1083,12 +1262,18 @@ const CartPage = ({ cart, updateQty, clearCart, user }: { cart: CartItem[], upda
         status: 'pending',
         paymentMethod,
         address,
+        apartment,
+        landmark,
+        pincode,
+        city,
+        state,
+        alternatePhone,
         location,
         created_at: new Date().toISOString()
       });
       clearCart();
       alert("Order placed successfully!");
-      navigate('/');
+      navigate('/profile');
     } catch (err) {
       console.error(err);
       alert("Checkout failed. Please try again.");
@@ -1152,15 +1337,98 @@ const CartPage = ({ cart, updateQty, clearCart, user }: { cart: CartItem[], upda
           <div className="glass-panel p-10 space-y-8 border-white/80">
             <h3 className="text-2xl font-bold font-display tracking-tight">Delivery Details</h3>
             <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Full Name</label>
+                  <input 
+                    className="input-field" 
+                    placeholder="Receiver's Name" 
+                    value={user?.name || ''} 
+                    readOnly
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Phone Number</label>
+                  <input 
+                    className="input-field" 
+                    placeholder="Phone Number" 
+                    value={user?.phone || ''} 
+                    readOnly
+                  />
+                </div>
+              </div>
+
               <div className="space-y-3">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Delivery Address</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Delivery Address (House No, Street)</label>
                 <textarea 
-                  className="input-field min-h-[100px]" 
-                  placeholder="Enter your full address..." 
+                  className="input-field min-h-[80px]" 
+                  placeholder="Enter your full street address..." 
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                 />
               </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Apartment / Suite / Floor</label>
+                  <input 
+                    className="input-field" 
+                    placeholder="Apt 402, 4th Floor..." 
+                    value={apartment}
+                    onChange={(e) => setApartment(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Landmark (Near...)</label>
+                  <input 
+                    className="input-field" 
+                    placeholder="Near City Hospital, Opp. Park..." 
+                    value={landmark}
+                    onChange={(e) => setLandmark(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Pincode</label>
+                  <input 
+                    className="input-field" 
+                    placeholder="110001" 
+                    value={pincode}
+                    onChange={(e) => setPincode(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">City</label>
+                  <input 
+                    className="input-field" 
+                    placeholder="New Delhi" 
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">State</label>
+                  <input 
+                    className="input-field" 
+                    placeholder="Delhi" 
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Alternate Phone (Optional)</label>
+                <input 
+                  className="input-field" 
+                  placeholder="+91 98765 43210" 
+                  value={alternatePhone}
+                  onChange={(e) => setAlternatePhone(e.target.value)}
+                />
+              </div>
+
               <button 
                 onClick={handleGetLocation}
                 className="flex items-center gap-3 text-brand-600 font-bold text-sm hover:bg-brand-50 px-4 py-2 rounded-xl transition-all"
@@ -1220,7 +1488,7 @@ const CartPage = ({ cart, updateQty, clearCart, user }: { cart: CartItem[], upda
               disabled={loading}
               className="w-full btn-primary py-6 text-xl shadow-2xl shadow-brand-600/30 relative z-10 disabled:opacity-50"
             >
-              {loading ? "Placing Order..." : "Confirm Order"}
+              {loading ? "Placing Order..." : "Checkout"}
             </button>
           </div>
         </div>
@@ -1387,6 +1655,79 @@ const RemindersPage = ({ user }: { user: UserType | null }) => {
   );
 };
 
+const MyOrders = ({ user }: { user: UserType | null }) => {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    // Remove orderBy to avoid composite index requirement
+    const q = query(collection(db, 'orders'), where('user_id', '==', user.id));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+      // Sort client-side instead
+      fetchedOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setOrders(fetchedOrders);
+      setLoading(false);
+    }, (err) => {
+      console.error("Orders fetch error:", err);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  if (loading) return <div className="text-center py-10"><div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto" /></div>;
+
+  if (orders.length === 0) {
+    return (
+      <div className="text-center py-10 space-y-3">
+        <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+          <ShoppingCart className="w-6 h-6 text-slate-200" />
+        </div>
+        <p className="text-slate-400 text-sm font-medium">No recent orders found.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {orders.map((order) => {
+        const items = JSON.parse(order.items || '[]');
+        return (
+          <div key={order.id} className="p-6 rounded-3xl border border-slate-100 bg-slate-50/50 space-y-4">
+            <div className="flex justify-between items-start">
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Order ID: #{order.id.slice(-6)}</p>
+                <p className="text-xs text-slate-500">{new Date(order.created_at).toLocaleDateString()} at {new Date(order.created_at).toLocaleTimeString()}</p>
+              </div>
+              <span className={cn(
+                "text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full",
+                order.status === 'pending' ? "bg-orange-50 text-orange-600" :
+                order.status === 'delivered' ? "bg-emerald-50 text-emerald-600" :
+                order.status === 'cancelled' ? "bg-red-50 text-red-600" :
+                "bg-blue-50 text-blue-600"
+              )}>
+                {order.status}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {items.map((it: any, idx: number) => (
+                <div key={idx} className="bg-white px-3 py-1.5 rounded-xl border border-slate-100 text-[10px] font-bold text-slate-600">
+                  {it.name} (x{it.quantity})
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Amount</span>
+              <span className="font-bold text-lg text-slate-900">₹{order.total_amount}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const WalletPage = ({ user }: { user: UserType | null }) => {
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
 
@@ -1473,6 +1814,9 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [bloodGroup, setBloodGroup] = useState('');
+  const [weight, setWeight] = useState('');
+  const [height, setHeight] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -1486,25 +1830,30 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
     setError('');
     
     try {
-      if (isLogin) {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        let userData: any = null;
-        try {
-          const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-          userData = userDoc.data();
-        } catch (dbErr) {
-          console.error("Firestore fetch failed:", dbErr);
-          // Continue anyway, we have the auth user
-        }
-        
-        onLogin({ 
-          id: userCredential.user.uid, 
-          name: userCredential.user.displayName || 'User', 
-          email: userCredential.user.email || '',
-          phone: userData?.phone || '',
-          role: userData?.role || 'user'
-        });
-      } else {
+        if (isLogin) {
+          const userCredential = await signInWithEmailAndPassword(auth, email, password);
+          let userData: any = null;
+          try {
+            const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+            userData = userDoc.data();
+          } catch (dbErr) {
+            console.error("Firestore fetch failed:", dbErr);
+          }
+          
+          const role = email === 'admin@mednow.com' ? 'admin' : (userData?.role || 'user');
+          
+          onLogin({ 
+            id: userCredential.user.uid, 
+            name: userCredential.user.displayName || 'User', 
+            email: userCredential.user.email || '',
+            phone: userData?.phone || '',
+            role: role as any,
+            bloodGroup: userData?.bloodGroup || '',
+            weight: userData?.weight || '',
+            height: userData?.height || '',
+            updatedAt: userData?.updatedAt || ''
+          });
+        } else {
         if (!name || !phone) {
           setError('Please fill all fields');
           setLoading(false);
@@ -1520,6 +1869,9 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
             email,
             phone,
             role: 'user', // Default role
+            bloodGroup,
+            weight,
+            height,
             createdAt: new Date().toISOString()
           });
         } catch (dbErr) {
@@ -1532,7 +1884,11 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
           name, 
           email, 
           phone,
-          role: 'user'
+          role: 'user',
+          bloodGroup,
+          weight,
+          height,
+          updatedAt: ''
         });
       }
     } catch (err: any) {
@@ -1577,7 +1933,11 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
         name: user.displayName || 'User',
         email: user.email || '',
         phone: userData?.phone || '',
-        role: userData?.role || 'user'
+        role: userData?.role || 'user',
+        bloodGroup: userData?.bloodGroup || '',
+        weight: userData?.weight || '',
+        height: userData?.height || '',
+        updatedAt: userData?.updatedAt || ''
       });
     } catch (err: any) {
       console.error(err);
@@ -1660,6 +2020,38 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
                     className="input-field pl-16"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Blood</label>
+                  <input 
+                    type="text" 
+                    placeholder="O+" 
+                    className="input-field"
+                    value={bloodGroup}
+                    onChange={(e) => setBloodGroup(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Weight</label>
+                  <input 
+                    type="text" 
+                    placeholder="70kg" 
+                    className="input-field"
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Height</label>
+                  <input 
+                    type="text" 
+                    placeholder="175cm" 
+                    className="input-field"
+                    value={height}
+                    onChange={(e) => setHeight(e.target.value)}
                   />
                 </div>
               </div>
@@ -1749,20 +2141,25 @@ export default function App() {
   const [user, setUser] = useState<UserType | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [authLoading, setAuthLoading] = useState(true);
-  const [medicines, setMedicines] = useState<Medicine[]>([]);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [medicines, setMedicines] = useState<Medicine[]>(INITIAL_MEDICINES);
+  const [doctors, setDoctors] = useState<Doctor[]>(INITIAL_DOCTORS.map(d => ({...d, id: d.id.toString()} as Doctor)));
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         const userData = userDoc.data();
+        const role = firebaseUser.email === 'admin@mednow.com' ? 'admin' : (userData?.role || 'user');
         setUser({
           id: firebaseUser.uid,
           name: firebaseUser.displayName || 'User',
           email: firebaseUser.email || '',
           phone: userData?.phone || '',
-          role: userData?.role || 'user'
+          role: role as any,
+          bloodGroup: userData?.bloodGroup || '',
+          weight: userData?.weight || '',
+          height: userData?.height || '',
+          updatedAt: userData?.updatedAt || ''
         });
       } else {
         setUser(null);
@@ -1770,22 +2167,33 @@ export default function App() {
       setAuthLoading(false);
     });
 
-    // Fetch dynamic data
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    // Fetch dynamic data only when logged in
     const unsubMeds = onSnapshot(collection(db, 'medicines'), (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Medicine));
       setMedicines(docs.length > 0 ? docs : INITIAL_MEDICINES);
+    }, (error) => {
+      console.warn("Medicines listener error (using fallback data):", error.message);
+      setMedicines(INITIAL_MEDICINES);
     });
     const unsubDocs = onSnapshot(collection(db, 'doctors'), (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Doctor));
       setDoctors(docs.length > 0 ? docs : INITIAL_DOCTORS.map(d => ({...d, id: d.id.toString()} as Doctor)));
+    }, (error) => {
+      console.warn("Doctors listener error (using fallback data):", error.message);
+      setDoctors(INITIAL_DOCTORS.map(d => ({...d, id: d.id.toString()} as Doctor)));
     });
 
     return () => {
-      unsubscribe();
       unsubMeds();
       unsubDocs();
     };
-  }, []);
+  }, [user]);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -1839,7 +2247,7 @@ export default function App() {
             <Route path="/cart" element={<CartPage cart={cart} updateQty={updateQty} clearCart={() => setCart([])} user={user} />} />
             <Route path="/reminders" element={<RemindersPage user={user} />} />
             <Route path="/wallet" element={<WalletPage user={user} />} />
-            <Route path="/doctors" element={<DoctorsPage doctors={doctors} />} />
+            <Route path="/doctors" element={<DoctorsPage doctors={doctors} user={user} />} />
             <Route path="/admin" element={<AdminPanel user={user} />} />
             <Route path="/profile" element={
               <div className="p-4 max-w-screen-xl mx-auto space-y-10 pb-24 pt-10">
@@ -1876,26 +2284,38 @@ export default function App() {
                       >
                         Logout
                       </button>
+                      {user.role === 'admin' && (
+                        <Link 
+                          to="/admin"
+                          className="bg-slate-900 text-white px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-[0.2em] border border-slate-800 hover:bg-slate-800 transition-colors flex items-center gap-2"
+                        >
+                          <Shield className="w-3 h-3" />
+                          Admin Panel
+                        </Link>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* Bento Grid Layout */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Health Stats Card */}
+                  {/* Health Status Card */}
                   <div className="md:col-span-2 glass-panel p-10 space-y-8">
                     <div className="flex justify-between items-center">
                       <div className="space-y-1">
-                        <h3 className="font-bold text-2xl tracking-tight">Health Stats</h3>
-                        <p className="text-slate-400 text-xs font-medium">Last updated 2 hours ago</p>
+                        <h3 className="font-bold text-2xl tracking-tight">Health Status</h3>
+                        {user.updatedAt && (
+                          <p className="text-slate-400 text-xs font-medium">
+                            Last updated {new Date(user.updatedAt).toLocaleDateString()}
+                          </p>
+                        )}
                       </div>
-                      <button className="text-brand-600 text-xs font-bold uppercase tracking-widest hover:underline">Sync Data</button>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
                       {[
-                        { label: 'Blood Group', value: 'O+', color: 'text-red-500', bg: 'bg-red-50/50' },
-                        { label: 'Weight', value: '72 kg', color: 'text-blue-500', bg: 'bg-blue-50/50' },
-                        { label: 'Height', value: '178 cm', color: 'text-emerald-500', bg: 'bg-emerald-50/50' },
+                        { label: 'Blood Group', value: user.bloodGroup || 'N/A', color: 'text-red-500', bg: 'bg-red-50/50' },
+                        { label: 'Weight', value: user.weight || 'N/A', color: 'text-blue-500', bg: 'bg-blue-50/50' },
+                        { label: 'Height', value: user.height || 'N/A', color: 'text-emerald-500', bg: 'bg-emerald-50/50' },
                       ].map((stat, i) => (
                         <div key={i} className={cn("p-6 rounded-[2.5rem] space-y-2 border border-white/50 backdrop-blur-sm", stat.bg)}>
                           <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">{stat.label}</p>
@@ -1903,6 +2323,24 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+                    <button 
+                      onClick={async () => {
+                        const bg = prompt("Enter Blood Group (e.g. O+):", user.bloodGroup);
+                        const w = prompt("Enter Weight (e.g. 70kg):", user.weight);
+                        const h = prompt("Enter Height (e.g. 175cm):", user.height);
+                        if (bg !== null || w !== null || h !== null) {
+                          const updates: any = { updatedAt: new Date().toISOString() };
+                          if (bg !== null) updates.bloodGroup = bg;
+                          if (w !== null) updates.weight = w;
+                          if (h !== null) updates.height = h;
+                          await updateDoc(doc(db, 'users', user.id), updates);
+                          setUser({ ...user, ...updates });
+                        }
+                      }}
+                      className="w-full py-4 rounded-2xl border border-slate-100 text-slate-400 font-bold text-xs uppercase tracking-widest hover:bg-slate-50 transition-all"
+                    >
+                      Update Health Status
+                    </button>
                   </div>
 
                   {/* Quick Actions Card */}
@@ -1945,12 +2383,7 @@ export default function App() {
                       <h3 className="font-bold text-xl tracking-tight">Recent Orders</h3>
                       <Link to="/shop" className="text-brand-600 text-xs font-bold uppercase tracking-widest hover:underline">Shop More</Link>
                     </div>
-                    <div className="text-center py-10 space-y-3">
-                      <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
-                        <ShoppingCart className="w-6 h-6 text-slate-200" />
-                      </div>
-                      <p className="text-slate-400 text-sm font-medium">No recent orders found.</p>
-                    </div>
+                    <MyOrders user={user} />
                   </div>
                 </div>
 
