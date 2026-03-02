@@ -3,6 +3,7 @@
   "description": "Hyperlocal AI-powered healthcare platform for medicine delivery, doctor consultations, and health assistance.",
   "requestFramePermissions": [
     "camera",
-    "microphone"
+    "microphone",
+    "geolocation"
   ]
 }

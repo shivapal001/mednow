@@ -26,7 +26,15 @@ import {
   Send,
   FileText,
   Star,
-  CheckCircle
+  CheckCircle,
+  Settings,
+  Package,
+  Users,
+  MapPin,
+  CreditCard,
+  Truck,
+  Phone,
+  LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -40,9 +48,9 @@ import {
   signOut,
   signInWithPopup
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, deleteDoc, orderBy } from 'firebase/firestore';
-import { MEDICINES, DOCTORS } from './constants';
-import { User as UserType, CartItem, Medicine, Reminder, Prescription } from './types';
+import { doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, deleteDoc, orderBy, updateDoc, onSnapshot } from 'firebase/firestore';
+import { MEDICINES as INITIAL_MEDICINES, DOCTORS as INITIAL_DOCTORS } from './constants';
+import { User as UserType, CartItem, Medicine, Reminder, Prescription, Doctor, Order } from './types';
 import { geminiService } from './services/geminiService';
 
 // Utility for tailwind classes
@@ -52,7 +60,7 @@ function cn(...inputs: ClassValue[]) {
 
 // --- Components ---
 
-const Navbar = ({ cartCount }: { cartCount: number }) => {
+const Navbar = ({ cartCount, user }: { cartCount: number, user: UserType | null }) => {
   const location = useLocation();
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
@@ -61,6 +69,10 @@ const Navbar = ({ cartCount }: { cartCount: number }) => {
     { icon: MessageSquare, label: 'AI Health', path: '/ai-assistant' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
+
+  if (user?.role === 'admin') {
+    navItems.splice(4, 0, { icon: Settings, label: 'Admin', path: '/admin' });
+  }
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 nav-blur px-6 py-4 z-50 md:top-0 md:bottom-auto md:border-b md:border-t-0 shadow-2xl shadow-slate-900/5 overflow-hidden group/nav">
@@ -118,9 +130,375 @@ const Navbar = ({ cartCount }: { cartCount: number }) => {
   );
 };
 
-// --- Pages ---
+const AdminPanel = ({ user }: { user: UserType | null }) => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'medicines' | 'doctors' | 'orders' | 'users'>('dashboard');
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [users, setUsers] = useState<UserType[]>([]);
+  const [loading, setLoading] = useState(false);
 
-const HomePage = () => {
+  // Form states
+  const [newMed, setNewMed] = useState<Partial<Medicine>>({});
+  const [newDoc, setNewDoc] = useState<Partial<Doctor>>({});
+
+  useEffect(() => {
+    if (!user || user.role !== 'admin') return;
+
+    const unsubMeds = onSnapshot(collection(db, 'medicines'), (snapshot) => {
+      setMedicines(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Medicine)));
+    });
+    const unsubDocs = onSnapshot(collection(db, 'doctors'), (snapshot) => {
+      setDoctors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Doctor)));
+    });
+    const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('created_at', 'desc')), (snapshot) => {
+      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
+    });
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserType)));
+    });
+
+    return () => {
+      unsubMeds();
+      unsubDocs();
+      unsubOrders();
+      unsubUsers();
+    };
+  }, [user]);
+
+  if (!user || user.role !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="glass-panel p-12 text-center space-y-6 max-w-md">
+          <div className="bg-red-50 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto text-red-500">
+            <X className="w-10 h-10" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900">Access Denied</h2>
+          <p className="text-slate-500">You do not have permission to view this page.</p>
+          <Link to="/" className="btn-primary inline-block px-8 py-4">Go Home</Link>
+        </div>
+      </div>
+    );
+  }
+
+  const handleAddMed = async () => {
+    if (!newMed.name || !newMed.price) return;
+    setLoading(true);
+    await addDoc(collection(db, 'medicines'), {
+      ...newMed,
+      id: Date.now().toString(), // Simple ID generation
+    });
+    setNewMed({});
+    setLoading(false);
+  };
+
+  const handleAddDoc = async () => {
+    if (!newDoc.name || !newDoc.specialty) return;
+    setLoading(true);
+    await addDoc(collection(db, 'doctors'), {
+      ...newDoc,
+      id: Date.now().toString(),
+      verified: true,
+      rating: 4.5
+    });
+    setNewDoc({});
+    setLoading(false);
+  };
+
+  const updateOrderStatus = async (orderId: string, status: string) => {
+    await updateDoc(doc(db, 'orders', orderId), { status });
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+      {/* Sidebar */}
+      <aside className="w-full md:w-64 bg-white border-r border-slate-200 p-6 space-y-8">
+        <div className="flex items-center gap-3">
+          <div className="bg-brand-600 p-2 rounded-xl text-white">
+            <Settings className="w-6 h-6" />
+          </div>
+          <h2 className="font-display font-bold text-xl">Admin Panel</h2>
+        </div>
+        <nav className="space-y-2">
+          {[
+            { id: 'dashboard', icon: Home, label: 'Dashboard' },
+            { id: 'medicines', icon: Package, label: 'Medicines' },
+            { id: 'doctors', icon: Stethoscope, label: 'Doctors' },
+            { id: 'orders', icon: ShoppingCart, label: 'Orders' },
+            { id: 'users', icon: Users, label: 'Users' },
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id as any)}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all",
+                activeTab === item.id ? "bg-brand-50 text-brand-600 shadow-sm" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+              )}
+            >
+              <item.icon className="w-5 h-5" />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      {/* Content */}
+      <main className="flex-1 p-8 overflow-y-auto">
+        {activeTab === 'dashboard' && (
+          <div className="space-y-8">
+            <h1 className="text-3xl font-display font-bold">Dashboard Overview</h1>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              {[
+                { label: 'Total Orders', value: orders.length, icon: ShoppingCart, color: 'bg-blue-500' },
+                { label: 'Total Users', value: users.length, icon: Users, color: 'bg-emerald-500' },
+                { label: 'Medicines', value: medicines.length, icon: Package, color: 'bg-orange-500' },
+                { label: 'Doctors', value: doctors.length, icon: Stethoscope, color: 'bg-brand-600' },
+              ].map((stat, i) => (
+                <div key={i} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                  <div className={cn(stat.color, "w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg")}>
+                    <stat.icon className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{stat.label}</p>
+                    <p className="text-3xl font-display font-bold text-slate-900">{stat.value}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'medicines' && (
+          <div className="space-y-8">
+            <div className="flex justify-between items-center">
+              <h1 className="text-3xl font-display font-bold">Manage Medicines</h1>
+            </div>
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+              <h3 className="font-bold text-lg">Add New Medicine</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <input 
+                  className="input-field" 
+                  placeholder="Medicine Name" 
+                  value={newMed.name || ''} 
+                  onChange={e => setNewMed({...newMed, name: e.target.value})} 
+                />
+                <input 
+                  className="input-field" 
+                  placeholder="Brand" 
+                  value={newMed.brand || ''} 
+                  onChange={e => setNewMed({...newMed, brand: e.target.value})} 
+                />
+                <input 
+                  className="input-field" 
+                  placeholder="Price" 
+                  type="number"
+                  value={newMed.price || ''} 
+                  onChange={e => setNewMed({...newMed, price: Number(e.target.value)})} 
+                />
+                <input 
+                  className="input-field" 
+                  placeholder="Category" 
+                  value={newMed.category || ''} 
+                  onChange={e => setNewMed({...newMed, category: e.target.value})} 
+                />
+                <input 
+                  className="input-field md:col-span-2" 
+                  placeholder="Image URL" 
+                  value={newMed.image || ''} 
+                  onChange={e => setNewMed({...newMed, image: e.target.value})} 
+                />
+                <textarea 
+                  className="input-field md:col-span-2 min-h-[100px]" 
+                  placeholder="Description" 
+                  value={newMed.description || ''} 
+                  onChange={e => setNewMed({...newMed, description: e.target.value})} 
+                />
+              </div>
+              <button onClick={handleAddMed} disabled={loading} className="btn-primary px-12 py-4">
+                {loading ? 'Saving...' : 'Add Medicine'}
+              </button>
+            </div>
+
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Medicine</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Category</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Price</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {medicines.map(med => (
+                    <tr key={med.id}>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <img src={med.image} className="w-10 h-10 rounded-lg object-cover" />
+                          <div>
+                            <p className="font-bold text-slate-800">{med.name}</p>
+                            <p className="text-xs text-slate-400">{med.brand}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{med.category}</td>
+                      <td className="px-6 py-4 font-bold text-slate-800">₹{med.price}</td>
+                      <td className="px-6 py-4">
+                        <button onClick={() => deleteDoc(doc(db, 'medicines', med.id))} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'doctors' && (
+          <div className="space-y-8">
+            <h1 className="text-3xl font-display font-bold">Manage Doctors</h1>
+            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+              <h3 className="font-bold text-lg">Add New Doctor</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <input 
+                  className="input-field" 
+                  placeholder="Doctor Name" 
+                  value={newDoc.name || ''} 
+                  onChange={e => setNewDoc({...newDoc, name: e.target.value})} 
+                />
+                <input 
+                  className="input-field" 
+                  placeholder="Specialty" 
+                  value={newDoc.specialty || ''} 
+                  onChange={e => setNewDoc({...newDoc, specialty: e.target.value})} 
+                />
+                <input 
+                  className="input-field" 
+                  placeholder="Experience (e.g. 10 years)" 
+                  value={newDoc.experience || ''} 
+                  onChange={e => setNewDoc({...newDoc, experience: e.target.value})} 
+                />
+                <input 
+                  className="input-field" 
+                  placeholder="Consultation Fee" 
+                  type="number"
+                  value={newDoc.fee || ''} 
+                  onChange={e => setNewDoc({...newDoc, fee: Number(e.target.value)})} 
+                />
+                <input 
+                  className="input-field" 
+                  placeholder="WhatsApp Number" 
+                  value={newDoc.whatsapp || ''} 
+                  onChange={e => setNewDoc({...newDoc, whatsapp: e.target.value})} 
+                />
+                <input 
+                  className="input-field" 
+                  placeholder="Image URL" 
+                  value={newDoc.image || ''} 
+                  onChange={e => setNewDoc({...newDoc, image: e.target.value})} 
+                />
+              </div>
+              <button onClick={handleAddDoc} disabled={loading} className="btn-primary px-12 py-4">
+                {loading ? 'Saving...' : 'Add Doctor'}
+              </button>
+            </div>
+
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Doctor</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Specialty</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">WhatsApp</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {doctors.map(docItem => (
+                    <tr key={docItem.id}>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <img src={docItem.image} className="w-10 h-10 rounded-lg object-cover" />
+                          <div>
+                            <p className="font-bold text-slate-800">{docItem.name}</p>
+                            <p className="text-xs text-slate-400">{docItem.experience}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{docItem.specialty}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{docItem.whatsapp || 'N/A'}</td>
+                      <td className="px-6 py-4">
+                        <button onClick={() => deleteDoc(doc(db, 'doctors', docItem.id))} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'orders' && (
+          <div className="space-y-8">
+            <h1 className="text-3xl font-display font-bold">Manage Orders</h1>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Order ID</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Customer</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Total</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Status</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Payment</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {orders.map(order => (
+                    <tr key={order.id}>
+                      <td className="px-6 py-4 font-mono text-xs font-bold text-slate-400">#{order.id.slice(-6)}</td>
+                      <td className="px-6 py-4">
+                        <p className="font-bold text-slate-800">{order.user_name || 'Anonymous'}</p>
+                        <p className="text-xs text-slate-400">{order.user_phone}</p>
+                      </td>
+                      <td className="px-6 py-4 font-bold text-slate-800">₹{order.total_amount}</td>
+                      <td className="px-6 py-4">
+                        <select 
+                          value={order.status}
+                          onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+                          className={cn(
+                            "text-xs font-bold px-3 py-1.5 rounded-full border-none outline-none",
+                            order.status === 'pending' ? "bg-orange-50 text-orange-600" :
+                            order.status === 'delivered' ? "bg-emerald-50 text-emerald-600" :
+                            "bg-blue-50 text-blue-600"
+                          )}
+                        >
+                          <option value="pending">Pending</option>
+                          <option value="processing">Processing</option>
+                          <option value="shipped">Shipped</option>
+                          <option value="delivered">Delivered</option>
+                          <option value="cancelled">Cancelled</option>
+                        </select>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{order.paymentMethod}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};
+
+const HomePage = ({ medicines }: { medicines: Medicine[] }) => {
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -139,14 +517,11 @@ const HomePage = () => {
             <span className="gradient-text italic">Redefined.</span>
           </h1>
           <p className="text-slate-500 font-medium text-lg max-w-md leading-relaxed">
-            Experience the future of healthcare with AI-powered consultations and instant hyperlocal medicine delivery.
+            Experience the future of healthcare with AI-powered diagnostics, instant consultations, and smart wellness management.
           </p>
-          <div className="flex flex-wrap gap-4">
-            <Link to="/shop" className="btn-primary px-10 py-5 text-sm group">
-              <span>Order Medicines</span>
-              <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </Link>
-            <Link to="/ai-assistant" className="bg-white border border-slate-200 px-10 py-5 rounded-2xl text-sm font-bold hover:bg-slate-50 transition-all shadow-sm">Talk to AI</Link>
+          <div className="flex flex-wrap gap-6 pt-4">
+            <Link to="/shop" className="btn-primary px-10 py-5 text-lg shadow-2xl shadow-brand-600/20">Start Shopping</Link>
+            <Link to="/ai-assistant" className="glass-panel px-10 py-5 text-lg font-bold text-slate-700 hover:bg-white/80 transition-all">Talk to AI</Link>
           </div>
         </div>
         <div className="hidden lg:block relative floating">
@@ -229,7 +604,7 @@ const HomePage = () => {
           <Link to="/shop" className="text-brand-600 text-sm font-bold hover:underline underline-offset-8 decoration-2 transition-all">View Full Store</Link>
         </div>
         <div className="flex gap-8 overflow-x-auto pb-12 no-scrollbar -mx-6 px-6">
-          {MEDICINES.slice(0, 5).map((med) => (
+          {medicines.slice(0, 5).map((med) => (
             <motion.div 
               whileHover={{ y: -15 }}
               key={med.id} 
@@ -265,13 +640,95 @@ const HomePage = () => {
   );
 };
 
-const ShopPage = ({ addToCart }: { addToCart: (m: Medicine) => void }) => {
+const DoctorsPage = ({ doctors }: { doctors: Doctor[] }) => {
+  return (
+    <div className="p-6 max-w-screen-xl mx-auto space-y-10 pb-24 pt-10">
+      <header className="space-y-2">
+        <h2 className="text-4xl font-display font-bold text-slate-900 tracking-tight">Expert <span className="gradient-text italic">Consultation</span></h2>
+        <p className="text-slate-500 font-medium">Connect with top specialists instantly via WhatsApp.</p>
+      </header>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {doctors.map((doc) => (
+          <motion.div 
+            whileHover={{ y: -10 }}
+            key={doc.id} 
+            className="glass-panel p-8 space-y-6 border-white/60 group hover:shadow-2xl transition-all duration-700 relative overflow-hidden"
+          >
+            <div className="absolute inset-0 shimmer opacity-0 group-hover:opacity-10 transition-opacity pointer-events-none" />
+            
+            <div className="flex items-start justify-between">
+              <div className="relative">
+                <img 
+                  src={doc.image} 
+                  alt={doc.name} 
+                  className="w-24 h-24 rounded-[2.5rem] object-cover border-4 border-white shadow-xl group-hover:scale-105 transition-transform duration-700" 
+                  referrerPolicy="no-referrer" 
+                />
+                <div className="absolute -bottom-2 -right-2 bg-brand-600 text-white p-2.5 rounded-2xl border-4 border-white shadow-lg">
+                  <Stethoscope className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-2">
+                {doc.verified && (
+                  <div className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-3 py-1.5 rounded-xl uppercase tracking-widest border border-emerald-100/50 flex items-center gap-1.5">
+                    <CheckCircle className="w-3 h-3" />
+                    Verified
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5 bg-yellow-50 px-3 py-1.5 rounded-xl border border-yellow-100/50">
+                  <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+                  <span className="text-xs font-bold text-yellow-700">{doc.rating}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h4 className="font-bold text-2xl text-slate-900 group-hover:text-brand-600 transition-colors">{doc.name}</h4>
+              </div>
+              <p className="text-brand-600 text-xs font-bold uppercase tracking-[0.2em]">{doc.specialty}</p>
+              <div className="flex items-center gap-3 pt-2">
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Experience</span>
+                  <span className="text-sm font-bold text-slate-700">{doc.experience}</span>
+                </div>
+                <div className="w-px h-8 bg-slate-100" />
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Patients</span>
+                  <span className="text-sm font-bold text-slate-700">2.5k+</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center pt-6 border-t border-slate-50">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Consultation Fee</span>
+                <span className="font-bold text-2xl text-slate-900">₹{doc.fee}</span>
+              </div>
+              <a 
+                href={`https://wa.me/${doc.whatsapp || '910000000000'}?text=Hello Dr. ${doc.name}, I would like to book a consultation.`}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-emerald-500 text-white px-8 py-4 rounded-2xl font-bold text-sm shadow-xl shadow-emerald-500/20 hover:bg-emerald-600 transition-all active:scale-95 flex items-center gap-2"
+              >
+                <Phone className="w-4 h-4" />
+                WhatsApp
+              </a>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const ShopPage = ({ addToCart, medicines }: { addToCart: (m: Medicine) => void, medicines: Medicine[] }) => {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All');
   
   const categories = ['All', 'Fever', 'Pain', 'Digestive', 'Cold', 'Vitamins'];
   
-  const filtered = MEDICINES.filter(m => 
+  const filtered = medicines.filter(m => 
     (category === 'All' || m.category === category) &&
     (m.name.toLowerCase().includes(search.toLowerCase()) || m.brand.toLowerCase().includes(search.toLowerCase()))
   );
@@ -587,22 +1044,57 @@ const UploadPage = ({ user }: { user: UserType | null }) => {
 const CartPage = ({ cart, updateQty, clearCart, user }: { cart: CartItem[], updateQty: (id: string, q: number) => void, clearCart: () => void, user: UserType | null }) => {
   const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [address, setAddress] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'online'>('cod');
+  const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
+
+  const handleGetLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        setLocation({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude
+        });
+      }, (err) => {
+        alert("Could not get location. Please enter address manually.");
+      });
+    }
+  };
 
   const handleCheckout = async () => {
     if (!user) {
       alert("Please login first");
       return;
     }
-    await addDoc(collection(db, 'orders'), {
-      user_id: user.id,
-      items: JSON.stringify(cart),
-      total_amount: total,
-      status: 'pending',
-      created_at: new Date().toISOString()
-    });
-    clearCart();
-    alert("Order placed successfully!");
-    navigate('/');
+    if (!address) {
+      alert("Please enter delivery address");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'orders'), {
+        user_id: user.id,
+        user_name: user.name,
+        user_phone: user.phone,
+        items: JSON.stringify(cart),
+        total_amount: total,
+        status: 'pending',
+        paymentMethod,
+        address,
+        location,
+        created_at: new Date().toISOString()
+      });
+      clearCart();
+      alert("Order placed successfully!");
+      navigate('/');
+    } catch (err) {
+      console.error(err);
+      alert("Checkout failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -657,6 +1149,52 @@ const CartPage = ({ cart, updateQty, clearCart, user }: { cart: CartItem[], upda
             ))}
           </div>
 
+          <div className="glass-panel p-10 space-y-8 border-white/80">
+            <h3 className="text-2xl font-bold font-display tracking-tight">Delivery Details</h3>
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Delivery Address</label>
+                <textarea 
+                  className="input-field min-h-[100px]" 
+                  placeholder="Enter your full address..." 
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                />
+              </div>
+              <button 
+                onClick={handleGetLocation}
+                className="flex items-center gap-3 text-brand-600 font-bold text-sm hover:bg-brand-50 px-4 py-2 rounded-xl transition-all"
+              >
+                <MapPin className="w-5 h-5" />
+                {location ? "Location Captured" : "Use Current Location"}
+              </button>
+
+              <div className="space-y-4">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Payment Method</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setPaymentMethod('cod')}
+                    className={cn(
+                      "p-6 rounded-3xl border-2 transition-all flex flex-col items-center gap-3",
+                      paymentMethod === 'cod' ? "border-brand-600 bg-brand-50 text-brand-600" : "border-slate-100 text-slate-400"
+                    )}
+                  >
+                    <Truck className="w-8 h-8" />
+                    <span className="font-bold text-sm">Cash on Delivery</span>
+                  </button>
+                  <button 
+                    disabled
+                    className="p-6 rounded-3xl border-2 border-slate-50 bg-slate-50 text-slate-300 flex flex-col items-center gap-3 cursor-not-allowed relative group"
+                  >
+                    <CreditCard className="w-8 h-8" />
+                    <span className="font-bold text-sm">Online Payment</span>
+                    <span className="absolute -top-2 bg-slate-900 text-white text-[8px] px-2 py-1 rounded-full uppercase tracking-widest">Coming Soon</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="bg-slate-900 text-white p-10 rounded-[3rem] space-y-8 shadow-2xl shadow-slate-900/30 relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-48 h-48 bg-brand-500/10 rounded-full blur-[80px] -mr-24 -mt-24 group-hover:bg-brand-500/20 transition-colors" />
             <h3 className="text-2xl font-bold font-display tracking-tight relative z-10">Order Summary</h3>
@@ -679,9 +1217,10 @@ const CartPage = ({ cart, updateQty, clearCart, user }: { cart: CartItem[], upda
             </div>
             <button 
               onClick={handleCheckout}
-              className="w-full btn-primary py-6 text-xl shadow-2xl shadow-brand-600/30 relative z-10"
+              disabled={loading}
+              className="w-full btn-primary py-6 text-xl shadow-2xl shadow-brand-600/30 relative z-10 disabled:opacity-50"
             >
-              Place Order
+              {loading ? "Placing Order..." : "Confirm Order"}
             </button>
           </div>
         </div>
@@ -962,7 +1501,8 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
           id: userCredential.user.uid, 
           name: userCredential.user.displayName || 'User', 
           email: userCredential.user.email || '',
-          phone: userData?.phone || ''
+          phone: userData?.phone || '',
+          role: userData?.role || 'user'
         });
       } else {
         if (!name || !phone) {
@@ -979,6 +1519,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
             name,
             email,
             phone,
+            role: 'user', // Default role
             createdAt: new Date().toISOString()
           });
         } catch (dbErr) {
@@ -990,7 +1531,8 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
           id: userCredential.user.uid, 
           name, 
           email, 
-          phone 
+          phone,
+          role: 'user'
         });
       }
     } catch (err: any) {
@@ -1034,7 +1576,8 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
         id: user.uid,
         name: user.displayName || 'User',
         email: user.email || '',
-        phone: userData?.phone || ''
+        phone: userData?.phone || '',
+        role: userData?.role || 'user'
       });
     } catch (err: any) {
       console.error(err);
@@ -1206,6 +1749,8 @@ export default function App() {
   const [user, setUser] = useState<UserType | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [authLoading, setAuthLoading] = useState(true);
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -1216,14 +1761,30 @@ export default function App() {
           id: firebaseUser.uid,
           name: firebaseUser.displayName || 'User',
           email: firebaseUser.email || '',
-          phone: userData?.phone || ''
+          phone: userData?.phone || '',
+          role: userData?.role || 'user'
         });
       } else {
         setUser(null);
       }
       setAuthLoading(false);
     });
-    return () => unsubscribe();
+
+    // Fetch dynamic data
+    const unsubMeds = onSnapshot(collection(db, 'medicines'), (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Medicine));
+      setMedicines(docs.length > 0 ? docs : INITIAL_MEDICINES);
+    });
+    const unsubDocs = onSnapshot(collection(db, 'doctors'), (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Doctor));
+      setDoctors(docs.length > 0 ? docs : INITIAL_DOCTORS.map(d => ({...d, id: d.id.toString()} as Doctor)));
+    });
+
+    return () => {
+      unsubscribe();
+      unsubMeds();
+      unsubDocs();
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -1268,87 +1829,18 @@ export default function App() {
         <div className="fixed top-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand-500/10 rounded-full blur-[120px] pointer-events-none animate-pulse" />
         <div className="fixed bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none animate-pulse [animation-delay:2s]" />
         
-        <Navbar cartCount={cart.reduce((a, b) => a + b.quantity, 0)} />
+        <Navbar cartCount={cart.reduce((a, b) => a + b.quantity, 0)} user={user} />
         <main className="md:pt-20 relative z-10">
           <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/shop" element={<ShopPage addToCart={addToCart} />} />
+            <Route path="/" element={<HomePage medicines={medicines} />} />
+            <Route path="/shop" element={<ShopPage addToCart={addToCart} medicines={medicines} />} />
             <Route path="/ai-assistant" element={<AIAssistantPage />} />
             <Route path="/upload" element={<UploadPage user={user} />} />
             <Route path="/cart" element={<CartPage cart={cart} updateQty={updateQty} clearCart={() => setCart([])} user={user} />} />
             <Route path="/reminders" element={<RemindersPage user={user} />} />
             <Route path="/wallet" element={<WalletPage user={user} />} />
-            <Route path="/doctors" element={
-              <div className="p-6 max-w-screen-xl mx-auto space-y-10 pb-24 pt-10">
-                <header className="space-y-2">
-                  <h2 className="text-4xl font-display font-bold text-slate-900 tracking-tight">Expert <span className="gradient-text italic">Consultation</span></h2>
-                  <p className="text-slate-500 font-medium">Connect with top specialists instantly via video call.</p>
-                </header>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {DOCTORS.map((doc) => (
-                    <motion.div 
-                      whileHover={{ y: -10 }}
-                      key={doc.id} 
-                      className="glass-panel p-8 space-y-6 border-white/60 group hover:shadow-2xl transition-all duration-700 relative overflow-hidden"
-                    >
-                      <div className="absolute inset-0 shimmer opacity-0 group-hover:opacity-10 transition-opacity pointer-events-none" />
-                      
-                      <div className="flex items-start justify-between">
-                        <div className="relative">
-                          <img 
-                            src={doc.image} 
-                            alt={doc.name} 
-                            className="w-24 h-24 rounded-[2.5rem] object-cover border-4 border-white shadow-xl group-hover:scale-105 transition-transform duration-700" 
-                            referrerPolicy="no-referrer" 
-                          />
-                          <div className="absolute -bottom-2 -right-2 bg-brand-600 text-white p-2.5 rounded-2xl border-4 border-white shadow-lg">
-                            <Stethoscope className="w-5 h-5" />
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-2">
-                          <div className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-3 py-1.5 rounded-xl uppercase tracking-widest border border-emerald-100/50 flex items-center gap-1.5">
-                            <CheckCircle className="w-3 h-3" />
-                            Verified
-                          </div>
-                          <div className="flex items-center gap-1.5 bg-yellow-50 px-3 py-1.5 rounded-xl border border-yellow-100/50">
-                            <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
-                            <span className="text-xs font-bold text-yellow-700">{doc.rating}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-2xl text-slate-900 group-hover:text-brand-600 transition-colors">{doc.name}</h4>
-                        </div>
-                        <p className="text-brand-600 text-xs font-bold uppercase tracking-[0.2em]">{doc.specialty}</p>
-                        <div className="flex items-center gap-3 pt-2">
-                          <div className="flex flex-col">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Experience</span>
-                            <span className="text-sm font-bold text-slate-700">{doc.experience}</span>
-                          </div>
-                          <div className="w-px h-8 bg-slate-100" />
-                          <div className="flex flex-col">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Patients</span>
-                            <span className="text-sm font-bold text-slate-700">2.5k+</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-center pt-6 border-t border-slate-50">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Consultation Fee</span>
-                          <span className="font-bold text-2xl text-slate-900">₹{doc.fee}</span>
-                        </div>
-                        <button className="bg-brand-600 text-white px-8 py-4 rounded-2xl font-bold text-sm shadow-xl shadow-brand-600/20 hover:bg-brand-700 hover:shadow-brand-600/40 transition-all active:scale-95">
-                          Book Now
-                        </button>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            } />
+            <Route path="/doctors" element={<DoctorsPage doctors={doctors} />} />
+            <Route path="/admin" element={<AdminPanel user={user} />} />
             <Route path="/profile" element={
               <div className="p-4 max-w-screen-xl mx-auto space-y-10 pb-24 pt-10">
                 {/* Profile Header */}

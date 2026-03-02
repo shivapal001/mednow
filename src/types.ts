@@ -3,6 +3,20 @@ export interface User {
   phone: string;
   name?: string;
   email?: string;
+  role?: 'user' | 'admin';
+  createdAt?: string;
+}
+
+export interface Doctor {
+  id: string;
+  name: string;
+  specialty: string;
+  experience: string;
+  rating: number;
+  fee: number;
+  image: string;
+  verified: boolean;
+  whatsapp?: string;
 }
 
 export interface Medicine {
@@ -38,8 +52,16 @@ export interface Reminder {
 export interface Order {
   id: string;
   user_id: string;
+  user_name?: string;
+  user_phone?: string;
   items: string;
   total_amount: number;
-  status: string;
+  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  paymentMethod: 'cod' | 'online';
+  address: string;
+  location?: {
+    latitude: number;
+    longitude: number;
+  };
   created_at: string;
 }
