@@ -6,6 +6,17 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  AreaChart,
+  Area
+} from 'recharts';
+import { 
   Home, 
   Search, 
   ShoppingCart, 
@@ -52,7 +63,8 @@ import {
   onAuthStateChanged,
   updateProfile,
   signOut,
-  signInWithPopup
+  signInWithPopup,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, deleteDoc, orderBy, updateDoc, onSnapshot } from 'firebase/firestore';
 import { MEDICINES as INITIAL_MEDICINES, DOCTORS as INITIAL_DOCTORS } from './constants';
@@ -76,7 +88,9 @@ const Navbar = ({ cartCount, user }: { cartCount: number, user: UserType | null 
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 
-  if (user?.role === 'admin') {
+  const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com';
+
+  if (isAdmin) {
     navItems.splice(4, 0, { icon: Settings, label: 'Admin', path: '/admin' });
   }
 
@@ -90,7 +104,7 @@ const Navbar = ({ cartCount, user }: { cartCount: number, user: UserType | null 
           </div>
           <span className="gradient-text">MedNow</span>
         </div>
-        <div className="flex justify-around w-full md:w-auto md:gap-12">
+        <div className="flex justify-around w-full md:w-auto md:gap-10">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
@@ -98,17 +112,17 @@ const Navbar = ({ cartCount, user }: { cartCount: number, user: UserType | null 
                 key={item.path} 
                 to={item.path}
                 className={cn(
-                  "flex flex-col items-center gap-1.5 transition-all duration-500 relative group",
+                  "flex flex-col items-center gap-1 transition-all duration-500 relative group",
                   isActive ? "text-brand-600" : "text-slate-400 hover:text-slate-600"
                 )}
               >
                 <div className={cn(
-                  "p-2 rounded-2xl transition-all duration-500",
+                  "p-1.5 md:p-2 rounded-2xl transition-all duration-500",
                   isActive ? "bg-brand-50 shadow-inner" : "group-hover:bg-slate-50"
                 )}>
-                  <item.icon className={cn("w-5 h-5 transition-transform duration-500", isActive && "scale-110")} />
+                  <item.icon className={cn("w-4 h-4 md:w-5 md:h-5 transition-transform duration-500", isActive && "scale-110")} />
                 </div>
-                <span className="text-[9px] font-bold uppercase tracking-[0.2em]">{item.label}</span>
+                <span className="text-[8px] md:text-[9px] font-bold uppercase tracking-[0.1em] md:tracking-[0.2em]">{item.label}</span>
                 {isActive && (
                   <motion.div 
                     layoutId="nav-active"
@@ -148,18 +162,23 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
   // Form states
   const [newMed, setNewMed] = useState<Partial<Medicine>>({});
   const [newDoc, setNewDoc] = useState<Partial<Doctor>>({});
+  const [editingMed, setEditingMed] = useState<Medicine | null>(null);
+  const [editingDoc, setEditingDoc] = useState<Doctor | null>(null);
 
   useEffect(() => {
-    if (!user || user.role !== 'admin') return;
+    const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com';
+    if (!user || !isAdmin) return;
 
     const unsubMeds = onSnapshot(collection(db, 'medicines'), (snapshot) => {
-      setMedicines(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Medicine)));
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Medicine));
+      setMedicines(docs.length > 0 ? docs : INITIAL_MEDICINES);
     }, (error) => {
       console.warn("Admin Medicines listener error (using fallback data):", error.message);
       setMedicines(INITIAL_MEDICINES);
     });
     const unsubDocs = onSnapshot(collection(db, 'doctors'), (snapshot) => {
-      setDoctors(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Doctor)));
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Doctor));
+      setDoctors(docs.length > 0 ? docs : INITIAL_DOCTORS.map(d => ({...d, id: d.id.toString()} as Doctor)));
     }, (error) => {
       console.warn("Admin Doctors listener error (using fallback data):", error.message);
       setDoctors(INITIAL_DOCTORS.map(d => ({...d, id: d.id.toString()} as Doctor)));
@@ -189,7 +208,9 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
     };
   }, [user]);
 
-  if (!user || user.role !== 'admin') {
+  const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com';
+
+  if (!user || !isAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="glass-panel p-12 text-center space-y-6 max-w-md">
@@ -197,6 +218,8 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
             <X className="w-10 h-10" />
           </div>
           <h2 className="text-2xl font-bold text-slate-900">Access Denied</h2>
+          <p className="text-slate-500 font-medium">Email: {user?.email || 'Not logged in'}</p>
+          <p className="text-slate-500 font-medium">Role: {user?.role || 'None'}</p>
           <p className="text-slate-500">You do not have permission to view this page.</p>
           <Link to="/" className="btn-primary inline-block px-8 py-4">Go Home</Link>
         </div>
@@ -207,29 +230,71 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
   const handleAddMed = async () => {
     if (!newMed.name || !newMed.price) return;
     setLoading(true);
-    await addDoc(collection(db, 'medicines'), {
-      ...newMed,
-      id: Date.now().toString(), // Simple ID generation
-    });
-    setNewMed({});
-    setLoading(false);
+    try {
+      await addDoc(collection(db, 'medicines'), {
+        ...newMed,
+        id: Date.now().toString(),
+      });
+      setNewMed({});
+    } catch (err: any) {
+      console.error("Add Med Error:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleAddDoc = async () => {
     if (!newDoc.name || !newDoc.specialty) return;
     setLoading(true);
-    await addDoc(collection(db, 'doctors'), {
-      ...newDoc,
-      id: Date.now().toString(),
-      verified: true,
-      rating: 4.5
-    });
-    setNewDoc({});
-    setLoading(false);
+    try {
+      await addDoc(collection(db, 'doctors'), {
+        ...newDoc,
+        id: Date.now().toString(),
+        verified: true,
+        rating: 4.5
+      });
+      setNewDoc({});
+    } catch (err: any) {
+      console.error("Add Doc Error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateMed = async () => {
+    if (!editingMed) return;
+    setLoading(true);
+    try {
+      const { id, ...data } = editingMed;
+      await updateDoc(doc(db, 'medicines', id), data);
+      setEditingMed(null);
+    } catch (err: any) {
+      console.error("Update Med Error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateDoc = async () => {
+    if (!editingDoc) return;
+    setLoading(true);
+    try {
+      const { id, ...data } = editingDoc;
+      await updateDoc(doc(db, 'doctors', id), data);
+      setEditingDoc(null);
+    } catch (err: any) {
+      console.error("Update Doc Error:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const updateOrderStatus = async (orderId: string, status: string) => {
-    await updateDoc(doc(db, 'orders', orderId), { status });
+    try {
+      await updateDoc(doc(db, 'orders', orderId), { status });
+    } catch (err: any) {
+      console.error("Update Order Status Error:", err);
+    }
   };
 
   return (
@@ -288,6 +353,68 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
                   </div>
                 </div>
               ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-bold text-xl">Revenue Growth</h3>
+                  <div className="flex items-center gap-2 text-emerald-500 text-xs font-bold">
+                    <Activity className="w-4 h-4" />
+                    +12.5% vs last month
+                  </div>
+                </div>
+                <div className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={orders.length > 0 
+                      ? orders.slice(0, 7).reverse().map((o, i) => ({ name: `Day ${i+1}`, value: o.total_amount }))
+                      : [
+                          { name: 'Day 1', value: 400 },
+                          { name: 'Day 2', value: 300 },
+                          { name: 'Day 3', value: 600 },
+                          { name: 'Day 4', value: 800 },
+                          { name: 'Day 5', value: 500 },
+                          { name: 'Day 6', value: 900 },
+                          { name: 'Day 7', value: 1200 },
+                        ]}>
+                      <defs>
+                        <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
+                      <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Area type="monotone" dataKey="value" stroke="#0ea5e9" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm space-y-6">
+                <h3 className="font-bold text-xl">Recent Activity</h3>
+                <div className="space-y-6">
+                  {orders.slice(0, 4).map((order, i) => (
+                    <div key={i} className="flex items-center gap-4 group">
+                      <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:bg-brand-50 group-hover:text-brand-600 transition-colors">
+                        <ShoppingCart className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-slate-800">New order from {order.user_name}</p>
+                        <p className="text-xs text-slate-400">{new Date(order.created_at).toLocaleString()}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-slate-900">₹{order.total_amount}</p>
+                        <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{order.status}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -368,9 +495,14 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
                       <td className="px-6 py-4 text-sm text-slate-600">{med.category}</td>
                       <td className="px-6 py-4 font-bold text-slate-800">₹{med.price}</td>
                       <td className="px-6 py-4">
-                        <button onClick={() => deleteDoc(doc(db, 'medicines', med.id))} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
-                          <Trash2 className="w-5 h-5" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setEditingMed(med)} className="text-brand-600 hover:bg-brand-50 p-2 rounded-lg transition-colors">
+                            <Settings className="w-5 h-5" />
+                          </button>
+                          <button onClick={() => deleteDoc(doc(db, 'medicines', med.id))} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -454,9 +586,14 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
                       <td className="px-6 py-4 text-sm text-slate-600">{docItem.specialty}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{docItem.whatsapp || 'N/A'}</td>
                       <td className="px-6 py-4">
-                        <button onClick={() => deleteDoc(doc(db, 'doctors', docItem.id))} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
-                          <Trash2 className="w-5 h-5" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setEditingDoc(docItem)} className="text-brand-600 hover:bg-brand-50 p-2 rounded-lg transition-colors">
+                            <Settings className="w-5 h-5" />
+                          </button>
+                          <button onClick={() => deleteDoc(doc(db, 'doctors', docItem.id))} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -482,8 +619,18 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {orders.map(order => {
-                    const items = JSON.parse(order.items || '[]');
+                  {orders.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-medium">No orders found</td>
+                    </tr>
+                  ) : orders.map(order => {
+                    let items = [];
+                    try {
+                      const parsed = JSON.parse(order.items || '[]');
+                      items = Array.isArray(parsed) ? parsed : [];
+                    } catch (e) {
+                      console.error("Failed to parse order items", e);
+                    }
                     return (
                       <tr key={order.id}>
                         <td className="px-6 py-4 font-mono text-xs font-bold text-slate-400">#{order.id.slice(-6)}</td>
@@ -562,7 +709,11 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {consultations.map(c => (
+                  {consultations.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-medium">No consultation requests</td>
+                    </tr>
+                  ) : consultations.map(c => (
                     <tr key={c.id}>
                       <td className="px-6 py-4">
                         <p className="font-bold text-slate-800">{c.user_name || 'Anonymous'}</p>
@@ -573,7 +724,7 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
                         <p className="text-xs text-brand-600 font-bold">{c.doctor_specialty}</p>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600">
-                        {new Date(c.created_at).toLocaleString()}
+                        {c.created_at ? new Date(c.created_at).toLocaleString() : 'N/A'}
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-[10px] font-bold uppercase tracking-widest px-3 py-1 bg-blue-50 text-blue-600 rounded-full">
@@ -608,7 +759,11 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {users.map(u => (
+                  {users.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-medium">No users found</td>
+                    </tr>
+                  ) : users.map(u => (
                     <tr key={u.id}>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -645,6 +800,48 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
             </div>
           </div>
         )}
+
+        {/* Edit Modals */}
+        <AnimatePresence>
+          {editingMed && (
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] flex items-center justify-center p-6">
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white w-full max-w-2xl p-10 rounded-[3rem] shadow-2xl space-y-8">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-3xl font-display font-bold">Edit Medicine</h2>
+                  <button onClick={() => setEditingMed(null)}><X className="w-6 h-6 text-slate-400" /></button>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                  <input className="input-field" value={editingMed.name} onChange={e => setEditingMed({...editingMed, name: e.target.value})} placeholder="Name" />
+                  <input className="input-field" value={editingMed.brand} onChange={e => setEditingMed({...editingMed, brand: e.target.value})} placeholder="Brand" />
+                  <input className="input-field" type="number" value={editingMed.price} onChange={e => setEditingMed({...editingMed, price: Number(e.target.value)})} placeholder="Price" />
+                  <input className="input-field" value={editingMed.category} onChange={e => setEditingMed({...editingMed, category: e.target.value})} placeholder="Category" />
+                  <textarea className="input-field col-span-2 min-h-[100px]" value={editingMed.description} onChange={e => setEditingMed({...editingMed, description: e.target.value})} placeholder="Description" />
+                </div>
+                <button onClick={handleUpdateMed} disabled={loading} className="w-full btn-primary py-4">{loading ? 'Saving...' : 'Update Medicine'}</button>
+              </motion.div>
+            </div>
+          )}
+
+          {editingDoc && (
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] flex items-center justify-center p-6">
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white w-full max-w-2xl p-10 rounded-[3rem] shadow-2xl space-y-8">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-3xl font-display font-bold">Edit Doctor</h2>
+                  <button onClick={() => setEditingDoc(null)}><X className="w-6 h-6 text-slate-400" /></button>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                  <input className="input-field" value={editingDoc.name} onChange={e => setEditingDoc({...editingDoc, name: e.target.value})} placeholder="Name" />
+                  <input className="input-field" value={editingDoc.specialty} onChange={e => setEditingDoc({...editingDoc, specialty: e.target.value})} placeholder="Specialty" />
+                  <input className="input-field" value={editingDoc.experience} onChange={e => setEditingDoc({...editingDoc, experience: e.target.value})} placeholder="Experience" />
+                  <input className="input-field" type="number" value={editingDoc.fee} onChange={e => setEditingDoc({...editingDoc, fee: Number(e.target.value)})} placeholder="Fee" />
+                  <input className="input-field" value={editingDoc.whatsapp} onChange={e => setEditingDoc({...editingDoc, whatsapp: e.target.value})} placeholder="WhatsApp" />
+                  <input className="input-field" value={editingDoc.image} onChange={e => setEditingDoc({...editingDoc, image: e.target.value})} placeholder="Image URL" />
+                </div>
+                <button onClick={handleUpdateDoc} disabled={loading} className="w-full btn-primary py-4">{loading ? 'Saving...' : 'Update Doctor'}</button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   );
@@ -1820,6 +2017,36 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    setError('');
+  }, [isLogin]);
+
+  const [showReset, setShowReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSent, setResetSent] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!resetEmail) {
+      setError('Please enter your email address');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await sendPasswordResetEmail(auth, resetEmail);
+      setResetSent(true);
+      setTimeout(() => {
+        setShowReset(false);
+        setResetSent(false);
+      }, 3000);
+    } catch (err: any) {
+      console.error("Reset Error:", err);
+      setError(err.message || 'Failed to send reset email');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!email || !password) {
       setError('Please fill all fields');
@@ -1840,7 +2067,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
             console.error("Firestore fetch failed:", dbErr);
           }
           
-          const role = email === 'admin@mednow.com' ? 'admin' : (userData?.role || 'user');
+          const role = (email.toLowerCase() === 'admin@mednow.com' || email.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : (userData?.role || 'user');
           
           onLogin({ 
             id: userCredential.user.uid, 
@@ -1863,12 +2090,13 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
         await updateProfile(userCredential.user, { displayName: name });
         
         try {
+          const role = (email.toLowerCase() === 'admin@mednow.com' || email.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : 'user';
           // Save extra info to Firestore
           await setDoc(doc(db, 'users', userCredential.user.uid), {
             name,
             email,
             phone,
-            role: 'user', // Default role
+            role, // Dynamic role
             bloodGroup,
             weight,
             height,
@@ -1879,12 +2107,13 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
           // We still have the auth user, but profile data might be missing
         }
         
+        const role = (email.toLowerCase() === 'admin@mednow.com' || email.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : 'user';
         onLogin({ 
           id: userCredential.user.uid, 
           name, 
           email, 
           phone,
-          role: 'user',
+          role: role as any,
           bloodGroup,
           weight,
           height,
@@ -1892,15 +2121,28 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
         });
       }
     } catch (err: any) {
-      console.error("Auth Error:", err);
-      if (err.code === 'auth/operation-not-allowed') {
-        setError('Email/Password login is not enabled in Firebase Console.');
-      } else if (err.code === 'auth/invalid-credential') {
-        setError('Invalid email or password.');
-      } else if (err.code === 'auth/email-already-in-use') {
-        setError('This email is already registered.');
+      const errorCode = err.code || '';
+      const errorMessage = err.message || '';
+      
+      if (errorCode === 'auth/invalid-credential' || errorCode === 'auth/invalid-login-credentials' || errorCode === 'auth/user-not-found' || errorCode === 'auth/wrong-password' || errorMessage.includes('invalid-credential')) {
+        setError('Incorrect email or password. If you don\'t have an account, please Sign Up first.');
+      } else if (errorCode === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please login instead.');
       } else {
-        setError(err.message || 'Authentication failed');
+        console.error("Auth Error:", err);
+        if (errorCode === 'auth/invalid-email') {
+          setError('The email address is badly formatted.');
+        } else if (errorCode === 'auth/user-disabled') {
+          setError('This user account has been disabled.');
+        } else if (errorCode === 'auth/weak-password') {
+          setError('The password is too weak. Please use at least 6 characters.');
+        } else if (errorCode === 'auth/operation-not-allowed') {
+          setError('Email/Password login is not enabled. Please contact support.');
+        } else if (errorCode === 'auth/too-many-requests') {
+          setError('Too many failed attempts. Please try again later.');
+        } else {
+          setError(errorMessage || 'Authentication failed. Please try again.');
+        }
       }
     } finally {
       setLoading(false);
@@ -1918,30 +2160,55 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
       
+      let userData: any = null;
       if (!userDoc.exists()) {
-        await setDoc(userDocRef, {
-          name: user.displayName,
-          email: user.email,
+        userData = {
+          name: user.displayName || 'User',
+          email: user.email || '',
           phone: '', // Google doesn't provide phone by default
+          role: (user.email?.toLowerCase() === 'admin@mednow.com' || user.email?.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : 'user',
           createdAt: new Date().toISOString()
-        });
+        };
+        await setDoc(userDocRef, userData);
+      } else {
+        userData = userDoc.data();
       }
       
-      const userData = userDoc.data();
+      const role = (user.email?.toLowerCase() === 'admin@mednow.com' || user.email?.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : (userData?.role || 'user');
       onLogin({
         id: user.uid,
-        name: user.displayName || 'User',
-        email: user.email || '',
+        name: user.displayName || userData?.name || 'User',
+        email: user.email || userData?.email || '',
         phone: userData?.phone || '',
-        role: userData?.role || 'user',
+        role: role as any,
         bloodGroup: userData?.bloodGroup || '',
         weight: userData?.weight || '',
         height: userData?.height || '',
         updatedAt: userData?.updatedAt || ''
       });
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Google Sign-In failed');
+      console.error("Google Auth Error:", err);
+      const errorCode = err.code;
+      
+      switch (errorCode) {
+        case 'auth/popup-closed-by-user':
+          setError('The sign-in popup was closed before completion.');
+          break;
+        case 'auth/cancelled-popup-request':
+          setError('The sign-in request was cancelled.');
+          break;
+        case 'auth/popup-blocked':
+          setError('The sign-in popup was blocked by your browser.');
+          break;
+        case 'auth/account-exists-with-different-credential':
+          setError('An account already exists with the same email but different sign-in credentials.');
+          break;
+        case 'auth/unauthorized-domain':
+          setError('This domain is not authorized for Google Sign-In. Please add it to the Authorized Domains in Firebase Console.');
+          break;
+        default:
+          setError(err.message || 'Google Sign-In failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -2070,7 +2337,17 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Password</label>
+            <div className="flex justify-between items-center ml-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Password</label>
+              {isLogin && (
+                <button 
+                  onClick={() => setShowReset(true)}
+                  className="text-[10px] font-bold text-brand-600 hover:text-brand-700 uppercase tracking-widest"
+                >
+                  Forgot?
+                </button>
+              )}
+            </div>
             <input 
               type="password" 
               placeholder="••••••••" 
@@ -2079,6 +2356,36 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
+
+          {showReset && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-brand-50 p-6 rounded-2xl border border-brand-100 space-y-4"
+            >
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-bold text-brand-900">Reset Password</h3>
+                <button onClick={() => setShowReset(false)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-brand-700">Enter your email to receive a reset link.</p>
+              <input 
+                type="email" 
+                placeholder="your@email.com" 
+                className="input-field bg-white"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+              />
+              <button 
+                onClick={handleResetPassword}
+                disabled={loading || resetSent}
+                className="btn-primary w-full py-3 text-sm"
+              >
+                {loading ? "Sending..." : resetSent ? "Email Sent!" : "Send Reset Link"}
+              </button>
+            </motion.div>
+          )}
 
           {error && (
             <motion.p 
@@ -2149,7 +2456,7 @@ export default function App() {
       if (firebaseUser) {
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         const userData = userDoc.data();
-        const role = firebaseUser.email === 'admin@mednow.com' ? 'admin' : (userData?.role || 'user');
+        const role = (firebaseUser.email?.toLowerCase() === 'admin@mednow.com' || firebaseUser.email?.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : (userData?.role || 'user');
         setUser({
           id: firebaseUser.uid,
           name: firebaseUser.displayName || 'User',
@@ -2230,6 +2537,8 @@ export default function App() {
     return <LoginPage onLogin={setUser} />;
   }
 
+  const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com';
+
   return (
     <Router>
       <div className="min-h-screen mesh-bg relative overflow-hidden">
@@ -2284,7 +2593,7 @@ export default function App() {
                       >
                         Logout
                       </button>
-                      {user.role === 'admin' && (
+                      {isAdmin && (
                         <Link 
                           to="/admin"
                           className="bg-slate-900 text-white px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-[0.2em] border border-slate-800 hover:bg-slate-800 transition-colors flex items-center gap-2"
